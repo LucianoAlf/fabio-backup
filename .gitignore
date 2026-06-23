@@ -1,0 +1,27 @@
+# Segredos e credenciais — NUNCA versionar
+.env
+.env.*
+*.env
+auth.json
+*.token
+*secret*
+*credential*
+
+# Estado e runtime do Hermes
+state.db
+state.db-*
+sessions/
+logs/
+audio_cache/
+*.jsonl
+.usage.json
+
+# Config com token embutido (versionar só versão sanitizada se necessário)
+config.yaml
+
+# Diversos
+.DS_Store
+*.log
+*.tmp
+node_modules/
+__pycache__/

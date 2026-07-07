@@ -22,7 +22,8 @@ Cuidado com cada indivíduo (o aluno na sua jornada, o professor na sua rotina).
 
 ## Skills
 
-- **briefing-pedagogico-la-music** — produz briefing pedagógico de turma/professor/aluno a partir dos dados do LA Report (`aulas_emusys.anotacoes`), lendo a evolução, não uma lista crua de aulas. Tom de apoio + régua, sem policiamento.
+- **briefing-pedagogico-la-music** — produz briefing pedagógico de turma/professor/aluno a partir dos dados do LA Report (`aulas_emusys.anotacoes`), lendo a evolução, não uma lista crua de aulas.
+- **registro-aula-audio-la-music** — normaliza registros de aula por áudio/texto na Alma v1.1 do Fábio, separando tronco comum da turma e fatias nominais por aluno sem inventar campos.
 
 ## Notas de segurança
 

@@ -175,6 +175,21 @@ def fabio_atualizar_status_audio(audio_id: str, status: str, erro: str | None = 
     if not audio_id:
         return json.dumps({"ok": False, "error": "audio_id is required"}, ensure_ascii=False)
 
+    if status == "normalizado":
+        check_url = f"{_supabase_url()}/rest/v1/fabio_registros_aula"
+        check_resp = requests.get(
+            check_url,
+            headers=_headers(),
+            params={"audio_id": f"eq.{audio_id}", "select": "id", "limit": "1"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        check_data = _safe_json_response(check_resp)
+        if check_resp.status_code >= 400:
+            return json.dumps({"ok": False, "status_code": check_resp.status_code, "error": check_data}, ensure_ascii=False)
+        if not check_data:
+            status = "erro"
+            erro = erro or "normalização sem registro criado; verificar transcrição/RPC"
+
     url = f"{_supabase_url()}/rest/v1/fabio_fila_audios"
     body: Dict[str, Any] = {"status": status, "atualizado_em": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}
     body["erro"] = erro[:500] if erro else None

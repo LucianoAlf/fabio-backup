@@ -89,6 +89,18 @@ Corrija transcrição fonética com o dicionário + bom senso musical; **nomes d
 - **B · Musicalização / Kids** (Musicalização, Preparatória, Kids): atividades lúdicas, pulsação, bandinha; fatias por criança.
 - **C · School / Instrumento & Canto** (violão, bateria, teclado, canto…): técnica, repertório, marcos; funciona em turma pequena e 1:1.
 
+## FLUXO OPERACIONAL DO WEBHOOK (obrigatório)
+
+Quando o payload vier do LA Teacher app com `audio_id`, `aula_id`, `professor_id` e `audio_url`:
+
+1. Busque contexto com `fabio_buscar_contexto_aula`.
+2. Transcreva com `fabio_transcrever_audio_url`.
+3. Se a transcrição vier vazia, **não crie registro** e **não invente conteúdo**. Use `fabio_atualizar_status_audio` com `status="erro"` e erro curto: `transcricao vazia; professor precisa regravar`.
+4. Se criar registro com sucesso via `fabio_criar_registro_aula`, encerre a fila com `fabio_atualizar_status_audio` usando `status="normalizado"`.
+5. Se a RPC recusar ou faltar chave obrigatória, marque `status="erro"` com resumo curto da falha.
+
+A fila nunca pode ficar presa em `transcrevendo` depois que o webhook terminou.
+
 ## ENTRADA (JSON que você recebe)
 
 ```json

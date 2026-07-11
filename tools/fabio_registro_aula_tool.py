@@ -118,11 +118,25 @@ def fabio_transcrever_audio_url(audio_url: str, language: str | None = "pt") -> 
                     pass
                 raise
     try:
+        import subprocess
         from faster_whisper import WhisperModel
+
+        # Browser MediaRecorder usually uploads WebM/Opus. faster-whisper can
+        # often read it directly, but normalizing to mono 16 kHz WAV removes
+        # container/codec edge cases from the production pipeline.
+        wav_path = tmp_path + ".wav"
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", tmp_path, "-ac", "1", "-ar", "16000", "-vn", wav_path,
+            ],
+            check=True,
+            timeout=90,
+        )
 
         model_name = os.getenv("FABIO_WHISPER_MODEL") or os.getenv("HERMES_STT_LOCAL_MODEL") or "base"
         model = WhisperModel(model_name, device="cpu", compute_type="int8")
-        segments, info = model.transcribe(tmp_path, language=language or None, vad_filter=True)
+        segments, info = model.transcribe(wav_path, language=language or None, vad_filter=True)
         parts: List[str] = []
         for seg in segments:
             text = (getattr(seg, "text", "") or "").strip()
@@ -136,7 +150,7 @@ def fabio_transcrever_audio_url(audio_url: str, language: str | None = "pt") -> 
         # tudo, refaz uma única vez sem VAD. Isso preserva o guardrail: não
         # inventa conteúdo, só evita falso vazio do transcritor.
         if not text:
-            segments, info = model.transcribe(tmp_path, language=language or None, vad_filter=False)
+            segments, info = model.transcribe(wav_path, language=language or None, vad_filter=False)
             parts = []
             for seg in segments:
                 text = (getattr(seg, "text", "") or "").strip()
@@ -157,10 +171,13 @@ def fabio_transcrever_audio_url(audio_url: str, language: str | None = "pt") -> 
     except Exception as e:
         return json.dumps({"ok": False, "error": f"transcription_failed: {type(e).__name__}: {e}"}, ensure_ascii=False)
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        for _p in (locals().get("wav_path"), tmp_path):
+            if not _p:
+                continue
+            try:
+                os.unlink(_p)
+            except OSError:
+                pass
 
 
 def fabio_atualizar_status_audio(audio_id: str, status: str, erro: str | None = None) -> str:
@@ -234,6 +251,44 @@ def fabio_criar_registro_aula(p_payload: Dict[str, Any]) -> str:
         return json.dumps({"ok": False, "error": "origem must be 'app' for this route"}, ensure_ascii=False)
 
     audio_id = str(p_payload.get("audio_id") or "")
+    if not audio_id and p_payload.get("origem") == "app":
+        # Safety net for webhook turns: the model occasionally omitted audio_id
+        # from p_payload even though the webhook message had it. Infer only when
+        # there is exactly one recent transcribing queue row for the same
+        # aula/professor. Otherwise fail closed instead of creating an orphan
+        # registro that cannot close the queue.
+        q_resp = requests.get(
+            f"{_supabase_url()}/rest/v1/fabio_fila_audios",
+            headers=_headers(),
+            params={
+                "select": "id",
+                "aula_id": f"eq.{int(p_payload.get('aula_id'))}",
+                "professor_id": f"eq.{int(p_payload.get('professor_id'))}",
+                "status": "eq.transcrevendo",
+                "atualizado_em": "gte." + (__import__("datetime").datetime.now(__import__("datetime").timezone.utc) - __import__("datetime").timedelta(minutes=15)).isoformat(),
+            },
+            timeout=_HTTP_TIMEOUT,
+        )
+        q_data = _safe_json_response(q_resp)
+        if q_resp.status_code < 400 and isinstance(q_data, list) and len(q_data) == 1:
+            audio_id = str(q_data[0].get("id") or "")
+            p_payload["audio_id"] = audio_id
+        else:
+            return json.dumps({"ok": False, "error": "audio_id obrigatório para origem app", "candidates": q_data if isinstance(q_data, list) else None}, ensure_ascii=False)
+    if audio_id:
+        existing_resp = requests.get(
+            f"{_supabase_url()}/rest/v1/fabio_registros_aula",
+            headers=_headers(),
+            params={"audio_id": f"eq.{audio_id}", "select": "id", "limit": "1"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        existing_data = _safe_json_response(existing_resp)
+        if existing_resp.status_code >= 400:
+            return json.dumps({"ok": False, "status_code": existing_resp.status_code, "error": existing_data}, ensure_ascii=False)
+        if existing_data:
+            fabio_atualizar_status_audio(audio_id, "normalizado", None)
+            return json.dumps({"ok": True, "status_code": 200, "result": {"status": "ja_existia", "registro_id": existing_data[0].get("id"), "fatias": None}}, ensure_ascii=False)
+
     content_probe = {
         "tronco": p_payload.get("tronco"),
         "fatias": p_payload.get("fatias"),

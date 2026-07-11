@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
+from datetime import datetime
 
 import requests
 
@@ -91,6 +92,161 @@ def fabio_buscar_contexto_aula(aula_id: int, professor_id: int | None = None) ->
     if resp.status_code >= 400:
         return json.dumps({"ok": False, "status_code": resp.status_code, "error": data}, ensure_ascii=False)
     return json.dumps({"ok": True, "rows": data}, ensure_ascii=False)
+
+
+
+def _weekday_pt(date_value: str | None) -> str | None:
+    if not date_value:
+        return None
+    try:
+        d = datetime.fromisoformat(str(date_value)[:10]).date()
+    except Exception:
+        return None
+    return ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"][d.weekday()]
+
+
+def _time_hhmmss(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if "T" in text:
+        text = text.split("T", 1)[1]
+    text = text.split("+", 1)[0].split("-03", 1)[0].split("Z", 1)[0]
+    parts = text.split(":")
+    if len(parts) >= 2:
+        hh = parts[0].zfill(2)
+        mm = parts[1].zfill(2)
+        ss = (parts[2] if len(parts) >= 3 else "00").split(".", 1)[0].zfill(2)
+        return f"{hh}:{mm}:{ss}"
+    return None
+
+
+def _context_rows(aula_id: int, professor_id: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    params: Dict[str, str] = {
+        "aula_local_id": f"eq.{int(aula_id)}",
+        "select": "aula_local_id,aula_emusys_id,unidade_id,unidade_codigo,unidade_nome,data_aula,data_hora_inicio,data_hora_fim,horario_inicio_brt,horario_fim_brt,aula_tipo,aula_categoria,turma_nome,curso_nome,sala_nome,professor_id,professor_nome,aluno_id,aluno_nome,presenca_status,cancelada,nr_da_aula,qtd_alunos,anotacoes_fabio,qualidade_contexto",
+        "order": "aluno_nome.asc",
+    }
+    if professor_id is not None:
+        params["professor_id"] = f"eq.{int(professor_id)}"
+    resp = requests.get(f"{_supabase_url()}/rest/v1/vw_fabio_aulas_contexto", headers=_headers(), params=params, timeout=_HTTP_TIMEOUT)
+    data = _safe_json_response(resp)
+    if resp.status_code >= 400 or not isinstance(data, list):
+        return [], {"status_code": resp.status_code, "error": data}
+    return data, None
+
+
+def _dedupe_roster(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for row in rows:
+        aluno_id = row.get("aluno_id")
+        if aluno_id is None:
+            continue
+        try:
+            aid = int(aluno_id)
+        except Exception:
+            continue
+        if aid in seen:
+            continue
+        seen.add(aid)
+        out.append({
+            "aluno_id": aid,
+            "aluno_nome": row.get("aluno_nome"),
+            "aula_id": row.get("aula_local_id") or row.get("aula_id"),
+            "fonte": row.get("fonte") or row.get("qualidade_contexto") or "contexto",
+        })
+    return out
+
+
+def _buscar_roster_aula(aula_id: int, professor_id: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Resolve roster real da aula para impedir tronco null + 0 fatias."""
+    ctx_rows, err = _context_rows(aula_id, professor_id)
+    if err:
+        return [], {"ok": False, "erro": err, "fonte": "vw_fabio_aulas_contexto"}
+    if not ctx_rows:
+        return [], {"ok": False, "erro": "aula não encontrada", "fonte": "vw_fabio_aulas_contexto"}
+
+    roster = _dedupe_roster(ctx_rows)
+    base = ctx_rows[0]
+    expected = base.get("qtd_alunos")
+    try:
+        expected_int = int(expected) if expected is not None else None
+    except Exception:
+        expected_int = None
+    if roster:
+        return roster, {"ok": True, "fonte": "vw_fabio_aulas_contexto", "qtd_contexto": expected_int, "qtd_roster": len(roster)}
+
+    dia = _weekday_pt(base.get("data_aula"))
+    horario = _time_hhmmss(base.get("horario_inicio_brt") or base.get("data_hora_inicio"))
+    if not (base.get("professor_id") and base.get("unidade_id") and base.get("curso_nome") and dia and horario):
+        return [], {"ok": False, "erro": "contexto insuficiente para fallback de roster", "qtd_contexto": expected_int}
+
+    params: Dict[str, str] = {
+        "select": "aluno_id,aluno_nome,curso_nome,dia_aula,horario_aula,professor_id,unidade_id,unidade_codigo,aluno_status,tipo_matricula_nome,emusys_matricula_id",
+        "professor_id": f"eq.{int(base['professor_id'])}",
+        "unidade_id": f"eq.{base['unidade_id']}",
+        "curso_nome": f"eq.{base['curso_nome']}",
+        "dia_aula": f"eq.{dia}",
+        "horario_aula": f"eq.{horario}",
+        "order": "aluno_nome.asc",
+    }
+    resp = requests.get(f"{_supabase_url()}/rest/v1/vw_fabio_carteira_professor", headers=_headers(), params=params, timeout=_HTTP_TIMEOUT)
+    data = _safe_json_response(resp)
+    if resp.status_code >= 400 or not isinstance(data, list):
+        return [], {"ok": False, "erro": data, "status_code": resp.status_code, "fonte": "vw_fabio_carteira_professor"}
+    roster = _dedupe_roster([{**r, "aula_local_id": int(aula_id), "fonte": "vw_fabio_carteira_professor"} for r in data])
+    meta = {"ok": True, "fonte": "vw_fabio_carteira_professor", "qtd_contexto": expected_int, "qtd_roster": len(roster), "dia": dia, "horario": horario}
+    if expected_int is not None and len(roster) != expected_int:
+        meta["alerta"] = "qtd_roster_diferente_de_qtd_alunos"
+    return roster, meta
+
+
+def fabio_buscar_roster_aula(aula_id: int, professor_id: int | None = None) -> str:
+    roster, meta = _buscar_roster_aula(aula_id, professor_id)
+    return json.dumps({"ok": bool(roster), "roster": roster, "meta": meta}, ensure_ascii=False)
+
+
+def _normalizar_shape_com_roster(p_payload: Dict[str, Any]) -> tuple[Dict[str, Any] | None, dict[str, Any] | None]:
+    """Garante que nunca seja criado tronco aluno_id null + 0 fatias.
+
+    A RPC pública atual hardcoda aluno_id null no tronco. Até o banco aceitar
+    tronco.aluno_id, o caminho seguro é materializar fatias a partir do roster.
+    Individual vira 1 fatia; turma vira 1 fatia por aluno.
+    """
+    fatias = p_payload.get("fatias")
+    if isinstance(fatias, list) and len(fatias) > 0:
+        return p_payload, None
+
+    try:
+        aula_int = int(p_payload.get("aula_id"))
+        prof_int = int(p_payload.get("professor_id")) if p_payload.get("professor_id") is not None else None
+    except Exception:
+        return None, {"error": "aula_id/professor_id inválidos para resolver roster"}
+
+    roster, meta = _buscar_roster_aula(aula_int, prof_int)
+    if not roster:
+        return None, {"error": "roster não resolvido; registro não criado para evitar tronco null + 0 fatias", "meta": meta}
+
+    expected = meta.get("qtd_contexto") if isinstance(meta, dict) else None
+    if isinstance(expected, int) and expected > 0 and len(roster) != expected:
+        return None, {"error": "roster divergente de qtd_alunos; registro não criado", "meta": meta, "roster": roster}
+
+    tronco = p_payload.get("tronco") if isinstance(p_payload.get("tronco"), dict) else {}
+    texto = tronco.get("texto") or p_payload.get("texto_consolidado")
+    campos_base = tronco.get("campos") if isinstance(tronco.get("campos"), dict) else {}
+    novas_fatias = []
+    for aluno in roster:
+        novas_fatias.append({
+            "aula_id": aluno.get("aula_id") or aula_int,
+            "aluno_id": aluno["aluno_id"],
+            "texto": texto,
+            "campos": {**campos_base, "aluno_nome": aluno.get("aluno_nome"), "shape_autogerado_por_roster": True},
+        })
+    p_payload = dict(p_payload)
+    p_payload["fatias"] = novas_fatias
+    p_payload["tronco"] = {**tronco, "campos": {**campos_base, "shape_roster_meta": meta}}
+    return p_payload, None
 
 
 def fabio_transcrever_audio_url(audio_url: str, language: str | None = "pt") -> str:
@@ -299,6 +455,12 @@ def fabio_criar_registro_aula(p_payload: Dict[str, Any]) -> str:
             fabio_atualizar_status_audio(audio_id, "erro", "transcricao vazia; professor precisa regravar")
         return json.dumps({"ok": False, "error": "sem conteúdo pedagógico real; registro não criado", "audio_id": audio_id or None}, ensure_ascii=False)
 
+    p_payload, shape_error = _normalizar_shape_com_roster(p_payload)
+    if shape_error:
+        if audio_id:
+            fabio_atualizar_status_audio(audio_id, "erro", shape_error.get("error", "shape inválido"))
+        return json.dumps({"ok": False, **shape_error, "audio_id": audio_id or None}, ensure_ascii=False)
+
     url = f"{_supabase_url()}/rest/v1/rpc/fabio_criar_registro"
     body = {"p_payload": p_payload}
     resp = requests.post(url, headers=_headers(), json=body, timeout=_HTTP_TIMEOUT)
@@ -333,6 +495,29 @@ registry.register(
     },
     handler=lambda args, **kw: fabio_buscar_contexto_aula(args.get("aula_id"), args.get("professor_id")),
 )
+
+registry.register(
+    name="fabio_buscar_roster_aula",
+    toolset=_TOOLSET,
+    description="Resolve o roster real da aula usando contexto e fallback seguro na carteira do professor.",
+    emoji="👥",
+    requires_env=["LAREPORT_SUPABASE_SERVICE_ROLE"],
+    check_fn=check_requirements,
+    schema={
+        "name": "fabio_buscar_roster_aula",
+        "description": "Busca alunos reais da aula para decidir shape individual/turma. Não executa SQL livre.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "aula_id": {"type": "integer", "description": "aula_local_id / PK da aula no LA Report"},
+                "professor_id": {"type": "integer", "description": "ID interno do professor, opcional para validação"},
+            },
+            "required": ["aula_id"],
+        },
+    },
+    handler=lambda args, **kw: fabio_buscar_roster_aula(args.get("aula_id"), args.get("professor_id")),
+)
+
 
 registry.register(
     name="fabio_transcrever_audio_url",

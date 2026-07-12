@@ -24,6 +24,7 @@ Cuidado com cada indivíduo (o aluno na sua jornada, o professor na sua rotina).
 
 - **briefing-pedagogico-la-music** — produz briefing pedagógico de turma/professor/aluno a partir dos dados do LA Report (`aulas_emusys.anotacoes`), lendo a evolução, não uma lista crua de aulas.
 - **registro-aula-audio-la-music** — normaliza registros de aula por áudio/texto na Alma v1.1 do Fábio, separando tronco comum da turma e fatias nominais por aluno sem inventar campos.
+- **cobrar-registro-aula-la-music** — monta lembretes de registro de aula pendente a partir da RPC segura `fabio_pendencias_professor(professor_id)`, com anistia estrutural, `curso_base` e régua D+1/D+3/D+5.
 
 ## Notas de segurança
 

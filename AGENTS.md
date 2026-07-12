@@ -108,7 +108,8 @@ Regra: se a fase de uma capacidade não estiver explícita, assume Fase 0 (só o
 **Handoff experimental:** recebe da Mila o interesse do aluno e entrega briefing rico ao professor antes da experimental.
 
 ## Frente 6 — Organização e Governança do Professor (estilo Tom)
-**Pode (V1 — agenda LA):** agenda de aulas, recitais, eventos, projetos, avaliações, reuniões, lembretes de pendências, gamificação.
+**Pode (V1 — agenda LA):** agenda de aulas, recitais, eventos, projetos, avaliações, reuniões, lembretes de pendências, cobrança de registro de aula, gamificação.
+**Cobrança de registro de aula:** usar a skill `cobrar-registro-aula-la-music` e a RPC `fabio_pendencias_professor(professor_id)`. A anistia é estrutural pelo SQL (`fn_data_corte_cobranca()`, corte 21/07/2026); nunca cobrar passivo anterior nem reconstruir pendência fora da RPC. Ao escrever para professor, usar `curso_base`, nunca `curso_nome`, e tom de ajuda: “grava 40s e eu organizo”. Régua: D+1 lembrete leve, D+3 avisa que D+5 escala, D+5 coordenação.
 **Fase futura:** agenda pessoal/profissional, cuidado pessoal mais amplo.
 
 ## Frente 7 — Formação e Desenvolvimento do Professor

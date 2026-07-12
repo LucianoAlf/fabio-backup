@@ -36,9 +36,10 @@ from public.fabio_prontuario_aluno(
 Parâmetros:
 
 - `p_aluno_id`: qualquer `alunos.id` da pessoa.
-- `p_professor_id`: obrigatório quando quem pergunta é professor. Passe sempre o ID do professor autenticado/identificado.
-- `p_professor_id = null`: uso de coordenação/admin autorizados; retorna a pessoa inteira.
+- `p_professor_id`: **obrigatório**. Passe sempre o ID do professor autenticado/identificado.
 - `p_limite`: limite de registros a retornar; use o suficiente para o caso, sem carregar histórico gigante à toa.
+
+Não passe `null` em `p_professor_id`. Se a solicitação vier de coordenação/admin, esta skill não é a porta correta: escale para a ferramenta/fluxo de coordenação autorizado.
 
 A RPC retorna **um objeto JSON**. Leia principalmente:
 
@@ -53,8 +54,8 @@ A RPC entrega a timeline já segura:
 - resolve a pessoa por `(unidade_id, emusys_student_id)`;
 - não consolida por nome quando não há chave segura;
 - deduplica registros reais por data + curso canônico;
-- escopa por professor em SQL;
-- quando professor pergunta, retorna só conteúdo dos cursos dele;
+- exige professor em SQL;
+- retorna só conteúdo dos cursos daquele professor;
 - informa `outros_cursos` apenas com nome do curso/professor, sem conteúdo;
 - mantém `origem` explícita: `emusys` ou `fabio`.
 
@@ -79,11 +80,11 @@ Regra:
 
 3. **Separe os cursos.** Um aluno com Canto e Teclado tem histórias pedagógicas diferentes, com professores diferentes.
 
-4. **Escopo é SQL, não promessa.** Se quem pergunta é professor, chame a RPC com `p_professor_id`. Nunca busque tudo para depois filtrar no prompt.
+4. **Escopo é SQL, não promessa.** Chame a RPC sempre com `p_professor_id`. Nunca busque tudo para depois filtrar no prompt.
 
-5. **Coordenação/admin pode ver a pessoa inteira**, usando `p_professor_id = null`, desde que o contexto deixe claro que é papel autorizado.
+5. **Coordenação/admin não usa esta porta do Fábio.** Se pedirem visão completa da pessoa, escale para o fluxo autorizado de coordenação; não tente passar `null`.
 
-6. **Outros cursos sem vazamento.** Para professor, se a RPC informar outros cursos, você pode mencionar que existem, mas não revelar conteúdo pedagógico desses cursos.
+6. **Outros cursos sem vazamento.** Se a RPC informar outros cursos, você pode mencionar que existem, mas não revelar conteúdo pedagógico desses cursos.
 
 7. **Zero financeiro.** Nunca. Não existe no prontuário e não pode aparecer.
 
@@ -98,10 +99,8 @@ Você escreve **exclusivamente** via `registrar_aula_fabio`, e **só** na `anota
 ## Playbook: "me conta a história do aluno X"
 
 1. Identificar `aluno_id` inicial.
-2. Identificar o papel de quem pergunta:
-   - professor → obter/passar `professor_id`;
-   - coordenação/admin autorizado → `p_professor_id = null`.
-3. Chamar `fabio_prontuario_aluno(p_aluno_id, p_professor_id, p_limite)`.
+2. Identificar o professor solicitante e obter/passar o `professor_id`.
+3. Chamar `fabio_prontuario_aluno(p_aluno_id, p_professor_id, p_limite)`. Se não houver professor_id, parar e escalar; não usar `null`.
 4. Ler o array `linha_do_tempo` do JSON retornado.
 5. Agrupar por curso conforme retorno da RPC.
 6. Narrar a evolução: o que aparece cedo, o que aparece depois, o que se repete, o que foi superado — sempre com evidência textual.
@@ -123,6 +122,8 @@ Você escreve **exclusivamente** via `registrar_aula_fabio`, e **só** na `anota
 
 - ❌ Fazer `select` direto em `vw_prontuario_aluno` como porta do Fábio.
 - ❌ Filtrar escopo de professor só no prompt.
+- ❌ Passar `p_professor_id = null` na RPC do Fábio.
+- ❌ Tentar usar `coord_prontuario_aluno` ou função interna pelo Fábio.
 - ❌ Copiar anotação do Emusys para `anotacoes_fabio` ("migrar o histórico").
 - ❌ Consolidar por nome quando não existe chave segura.
 - ❌ Narrar a mesma aula várias vezes por duplicata da view bruta.
@@ -133,9 +134,9 @@ Você escreve **exclusivamente** via `registrar_aula_fabio`, e **só** na `anota
 ## Estado atual (jul/2026)
 
 - 18.729 aulas com anotação do Emusys.
-- A Valentina, caso de validação, retorna pela RPC:
+- A Valentina, caso de validação, retorna pela RPC do Fábio:
   - Matheus → 13 registros, só Canto;
-  - Alexandre → 5 registros, só Teclado;
-  - Coordenação → 19 registros reais nos três cursos.
+  - Alexandre → 5 registros, só Teclado.
+- A visão completa de coordenação existe em porta separada, sem grant para `fabio_agent`.
 - As primeiras anotações do Fábio começam a nascer com o professor-piloto (Matheus, prof. 25).
 - Espere `origem: 'emusys'` na maioria por enquanto. Isso é normal, não erro.

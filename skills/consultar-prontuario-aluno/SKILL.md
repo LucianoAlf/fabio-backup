@@ -1,147 +1,123 @@
 ---
 name: consultar-prontuario-aluno
-description: Use quando o Fábio precisar consultar, resumir ou narrar o histórico/prontuário pedagógico de um aluno da LA Music: “história do aluno”, “o que já estudou”, “prepara minha aula com ele/ela”, continuidade pedagógica, histórico por curso, aulas anteriores, registros do Emusys, registros do Fábio, relatório pedagógico individual ou transição entre professores.
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [la-music, fabio, prontuario, aluno, historico-pedagogico, la-report, la-teacher, emusys]
-    related_skills: [registro-aula-audio-la-music, briefing-pedagogico-la-music]
+description: Ler e narrar a vida pedagógica de um aluno da LA Music — o que ele já estudou, como evoluiu, o que foi registrado sobre ele ao longo do tempo. Usar SEMPRE que a tarefa envolver histórico do aluno, prontuário, "o que ele já viu", evolução, relatório de vida na escola, resumo pedagógico, preparação de aula com base no passado, passagem de bastão entre professores, ou qualquer pergunta que comece com "me conta sobre o aluno X". NÃO usar para registrar uma aula nova (isso é o fluxo normal do Fábio) nem para dados financeiros (proibidos).
 ---
 
-# Fábio · Prontuário do Aluno
+# Consultar o prontuário do aluno
 
-## Objetivo
+## O que é o prontuário
 
-Ler a vida pedagógica do aluno como uma linha do tempo única, sem misturar fontes nem criar duas verdades.
+A vida pedagógica de um aluno da LA Music é contada por **duas fontes que convivem**:
 
-O histórico antigo continua vindo do Emusys. O registro novo do Fábio fica no campo do Fábio. A unificação acontece **na leitura**, pela view `public.vw_prontuario_aluno`.
+| Fonte | Quem escreve | O que é |
+|---|---|---|
+| `aulas_emusys.anotacoes` | o professor, digitando **no Emusys** | o registro histórico (18k+ aulas desde sempre) |
+| `aulas_emusys.anotacoes_fabio` | **você (Fábio)**, via `registrar_aula_fabio` | o registro novo, gerado do áudio do professor |
 
-## Quando usar
+**Elas não competem — elas se somam.** A escola está em transição: os professores estão migrando
+do Emusys para o app, um a um. Um aluno pode ter 3 anos de anotações do Emusys e, a partir de
+julho/2026, anotações suas. **As duas são o prontuário dele.**
 
-Use esta skill quando o pedido envolver:
+**Nunca trate a anotação do Emusys como "legado descartável".** Ela é o passado real do aluno —
+o que ele estudou, o que o professor observou, como ele evoluiu. Um relatório de vida que ignore
+isso está mentindo por omissão.
 
-- “me conta a história da/do aluno”;
-- “o que ela/ele já estudou?”;
-- “prepara minha aula com essa/esse aluno”;
-- “histórico pedagógico”; 
-- “prontuário do aluno”; 
-- “continuidade da aula”; 
-- “relatório individual”; 
-- consulta atravessando aulas antigas do Emusys + registros novos do Fábio.
+## Onde ler: `vw_prontuario_aluno`
 
-Esta é uma skill de **leitura**. Ela não substitui a skill `registro-aula-audio-la-music` nem autoriza escrita.
-
-## Fonte canônica de leitura
-
-Use:
+Esta é a **fonte canônica de leitura** do prontuário. Ela unifica as duas origens numa linha do
+tempo só, sem copiar nada.
 
 ```sql
-select *
+select data_aula, curso_nome, professor_nome, texto, origem, presenca
 from public.vw_prontuario_aluno
-where aluno_id = $1
-order by data_aula desc, aula_id desc;
+where aluno_id = any($1)      -- TODAS as linhas da pessoa (ver "Identidade" abaixo)
+order by data_aula desc;
 ```
 
-A view entrega, por aula/aluno:
+Colunas que importam:
+- `texto` — a anotação (já resolve a preferência: Fábio quando existe, Emusys quando não)
+- `origem` — `'fabio'` ou `'emusys'`. **Sempre saiba de onde veio o que você está lendo.**
+- `texto_emusys_paralelo` — quando as DUAS existem na mesma aula, guarda a do Emusys também.
+- `curso_nome`, `professor_nome`, `data_aula`, `nr_da_aula`, `presenca`
 
-- `aluno_id`, `aluno_nome`, `unidade_id`;
-- `aula_id`, `data_aula`, `curso_nome`;
-- `professor_id`, `professor_nome`;
-- `nr_da_aula`;
-- `texto` — o registro principal da timeline;
-- `origem` — `fabio` ou `emusys`;
-- `texto_emusys_paralelo` — quando há registro do Fábio e também anotação Emusys na mesma aula;
-- `presenca`.
+## Identidade: o aluno não é uma linha
 
-## Regra central: unificar na leitura, nunca migrar
+**`alunos.id` é uma linha de matrícula, não uma pessoa.** A mesma criança com 3 cursos tem
+**3 linhas** em `alunos`.
 
-- `aulas_emusys.anotacoes` pertence ao Emusys/sync.
-- `aulas_emusys.anotacoes_fabio` pertence ao Fábio/RPC `registrar_aula_fabio`.
-- As duas fontes convivem.
-- Não copiar legado do Emusys para `anotacoes_fabio`.
-- Não sobrescrever `anotacoes` com texto do Fábio.
-- Não tentar “limpar” origem antiga.
+Exemplo real: a Valentina tem `697` (Canto), `1542` e `1099` (Teclado, Power Kids). São a mesma
+menina.
 
-A verdade operacional é: **uma timeline, duas procedências explícitas**.
+Para montar o prontuário **da pessoa**, junte todas as linhas dela:
 
-## Identidade: aluno.id não é pessoa
-
-`alunos.id` é linha operacional/matrícula, não pessoa universal.
-
-A mesma pessoa pode ter mais de um `aluno_id` quando faz mais de um curso. Exemplo canônico: Valentina possui três linhas/cursos.
-
-Antes de narrar a “vida inteira” de alguém:
-
-1. resolva quais `alunos.id` pertencem à mesma pessoa;
-2. mantenha cursos separados;
-3. consulte a view para todos os IDs resolvidos;
-4. ordene a timeline por data;
-5. sinalize qualquer ambiguidade.
-
-Nunca consolidar por nome de forma cega. Nome + unidade é fallback assistido, não identidade perfeita.
-
-## Como responder
-
-Sempre que resumir histórico:
-
-1. separar por curso quando houver mais de um;
-2. manter sequência temporal;
-3. declarar a origem quando isso importar: `Emusys`, `Fábio`, ou “registro do Fábio com anotação Emusys paralela”;
-4. não inventar evolução que não esteja no texto;
-5. diferenciar ausência de registro de ausência de aula;
-6. se a cobertura for baixa, dizer isso claramente.
-
-Formato recomendado para briefing pré-aula:
-
-```md
-## Prontuário — <Aluno>
-
-### Visão geral
-- Cursos encontrados: ...
-- Período com registros: ...
-- Fontes: Emusys (...), Fábio (...)
-
-### Linha pedagógica recente
-- <data> · <curso> · Aula <nr> · <origem>: <síntese fiel>
-
-### Padrões observados
-- ... somente com evidência textual
-
-### Para a aula de hoje
-- Retomar: ...
-- Observar: ...
-- Perguntar ao professor se quiser completar: ...
+```sql
+-- a chave REAL da pessoa: (unidade_id, emusys_student_id). Nunca por nome (homônimo).
+select array_agg(a2.id)
+from public.alunos a2
+where a2.emusys_student_id = (select emusys_student_id from public.alunos where id = $1)
+  and a2.unidade_id        = (select unidade_id        from public.alunos where id = $1);
 ```
 
-## `vw_fabio_aulas_contexto` ≠ `vw_prontuario_aluno`
+Se o aluno não tiver `emusys_student_id` (≈3% dos casos), aí sim cai no nome + unidade — e
+**avise que a consolidação foi por nome** (pode unir homônimos).
 
-Não confundir:
+## Regras de ouro
 
-| View | Pergunta que responde | Uso |
-|---|---|---|
-| `vw_fabio_aulas_contexto` | Quem está na aula agora? | roster/contexto da aula para fatiar áudio e registrar aula |
-| `vw_prontuario_aluno` | Qual é a história pedagógica do aluno? | leitura histórica, briefing, relatório e continuidade |
+1. **Nunca invente.** Se não há anotação, diga "sem registro nessa aula". Não preencha buraco com
+   inferência. O buraco é informação — significa que o professor não registrou.
 
-O Fábio precisa das duas, mas com papéis diferentes.
+2. **Sempre diga a origem.** "Segundo o registro do professor no Emusys (mar/2026)..." é diferente
+   de "No relatório que gerei da aula de segunda...". O usuário precisa saber a procedência.
 
-## Proibições
+3. **Separe os cursos.** Um aluno com Canto e Teclado tem duas histórias pedagógicas, com
+   professores diferentes. Não misture o progresso vocal com o progresso no teclado.
 
-- Não escrever direto em `aulas_emusys`.
-- Não executar `UPDATE`, `INSERT` ou `DELETE` para montar prontuário.
-- Não copiar `anotacoes` para `anotacoes_fabio`.
-- Não apagar/ocultar procedência.
-- Não fundir cursos diferentes em uma narrativa única sem avisar.
-- Não criar diagnóstico, laudo ou rótulo clínico a partir do histórico.
-- Não incluir financeiro.
+4. **Respeite o escopo de quem pergunta.** Se um PROFESSOR pergunta sobre um aluno, ele só pode
+   ver o(s) curso(s) **dele** com aquele aluno + a menção de que o aluno faz outros cursos
+   (sem conteúdo). A coordenação vê tudo. Na dúvida, restrinja.
 
-## Validação mínima antes de afirmar
+5. **Zero financeiro.** Nunca. Não existe no prontuário e não pode aparecer.
 
-Antes de responder “vida inteira”:
+6. **Nada de anamnese em resposta casual.** É dado sensível (saúde, família, desenvolvimento).
+   Só em tela autorizada.
 
-- conferir quantidade de entradas retornadas;
-- conferir cursos presentes;
-- conferir intervalo de datas;
-- conferir distribuição por `origem`;
-- se houver múltiplos `aluno_id`, deixar isso explícito internamente e narrar por curso.
+## Escrita: você só escreve numa coluna
 
-Se a view retornar vazio, diga que não há prontuário pedagógico registrado nessa fonte; não invente continuidade.
+Você escreve **exclusivamente** via `registrar_aula_fabio`, e **só** na `anotacoes_fabio`.
+
+**Você NUNCA toca a `anotacoes` do Emusys.** Aquilo é do professor. Existe uma trigger no banco
+(`trg_proteger_anotacoes_fabio`) protegendo o seu lado — e o sync do Emusys foi auditado pra não
+tocar o seu. As duas fontes são invioláveis uma pra outra.
+
+## Playbook: "me conta a história do aluno X"
+
+1. Resolver a pessoa → todas as linhas de `alunos` dela (chave segura).
+2. Ler `vw_prontuario_aluno` pra todas essas linhas, ordenado por data.
+3. Agrupar **por curso** (Canto é uma história, Teclado é outra).
+4. Narrar a evolução: o que aparece cedo, o que aparece depois, o que se repete (dificuldade
+   persistente), o que sumiu (superado).
+5. Marcar os **buracos**: períodos sem registro. Diga quantas aulas ficaram sem anotação.
+6. Fechar com o estado atual: em que aula da jornada está, presença recente.
+
+## Playbook: "prepara minha aula com o aluno X"
+
+1. Ler as **últimas 3-5 entradas** do prontuário (só o curso do professor que perguntou).
+2. Extrair: o que foi trabalhado, o próximo passo que ficou marcado, o dever de casa.
+3. Entregar curto: "Na última aula (25/mai) vocês trabalharam projeção vocal. Ficou marcado
+   iniciar respiração. O dever era treinar a escala de dó."
+4. Se não houver registro recente, diga: "Sem registro desde X. Não sei o que vocês fizeram."
+
+## O que NÃO fazer
+
+- ❌ Copiar anotação do Emusys pra dentro da `anotacoes_fabio` ("migrar o histórico").
+  Isso cria duas verdades. A unificação é na LEITURA (a view), não na escrita.
+- ❌ Consolidar aluno por nome quando existe `emusys_student_id`.
+- ❌ Reduzir dois cursos a um contador ou a uma história só.
+- ❌ Apresentar o que você (IA) inferiu como se fosse registro do professor.
+- ❌ Tratar cobertura zero como "o aluno não evoluiu". Ausência de registro ≠ ausência de aula.
+
+## Estado atual (jul/2026)
+
+- 18.729 aulas com anotação do Emusys.
+- As primeiras anotações do Fábio começam a nascer com o professor-piloto (Matheus, prof 25).
+- Espere `origem: 'emusys'` na esmagadora maioria por enquanto. Isso é o normal, não um erro.

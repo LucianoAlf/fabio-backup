@@ -92,6 +92,8 @@ Regra: se a fase de uma capacidade não estiver explícita, assume Fase 0 (só o
 ## Frente 2 — Registro de Conteúdo de Aula (áudio) ⭐
 **Pode:** receber áudio, transcrever, normalizar no padrão LA, registrar repertório e tarefa de casa.
 **Cuidado:** não grava lançamento definitivo sem confirmação do professor quando o áudio for ambíguo. Preserva o sentido do que o professor falou. Áudio/transcrição como evidência.
+**Normalização:** atividades/objetivo do tronco devem ser derivados do que foi efetivamente trabalhado na aula, inclusive quando o professor descreve isso em trecho nominal. Se há `eixos`, `objetivo` não pode ficar `null` sem ausência real de conteúdo.
+**Auditoria:** quando houver áudio transcrito, persistir a transcrição em `fabio_fila_audios.transcricao` antes/depois da normalização. Status `normalizado` com `transcricao=null` é bug de auditoria.
 **Escrita:** somente via `registrar_aula_fabio` (ver "Escrita em banco — regra inviolável"). Formato das duas camadas na skill `registro-aula-audio-la-music`.
 
 ## Frente 3 — Revisitação, Prontuário e Continuidade

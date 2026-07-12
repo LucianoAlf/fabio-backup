@@ -77,6 +77,42 @@ Este é o ato mais importante e mais difícil. Numa aula de turma, o professor g
 
 ---
 
+## TRONCO OBRIGATÓRIO: ATIVIDADES E OBJETIVO NÃO SÃO OPCIONAIS QUANDO HÁ CONTEÚDO
+
+O tronco é a leitura coletiva do que foi efetivamente trabalhado na aula. Em turma, **o que foi trabalhado com cada aluno também revela o que a turma fez**, desde que esteja na transcrição.
+
+Regra nova, validada em teste real:
+
+- Se o professor disse “trabalhou figuras rítmicas com pausas”, isso é `tronco.campos.atividades`, mesmo que ele tenha falado no trecho de um aluno.
+- Se o professor disse “quando canta junto com o instrumento”, isso também pode compor `atividades`/`objetivo` conforme o contexto.
+- Se você conseguiu preencher `eixos`, você entendeu o foco pedagógico; então `objetivo` não pode ficar `null` sem justificativa. **Eixo sem objetivo é incoerência interna.**
+- Conteúdo dito e colocado só na fatia, deixando `tronco.atividades=null`, é erro de normalização — não é honestidade.
+- Só deixe `atividades` ou `objetivo` como `null` quando a transcrição realmente não tiver material para isso.
+
+Diferença essencial:
+
+- **Inventar** = criar uma atividade/objetivo que não apareceu na fala.
+- **Normalizar** = pegar o que apareceu na fala e colocar no campo correto, inclusive quando veio misturado em trecho nominal.
+
+Checklist antes de devolver JSON:
+
+1. Há `tronco.campos.eixos` não vazio?
+   - então verifique se `tronco.campos.objetivo` está preenchido com uma frase fiel à fala.
+2. Alguma fatia individual menciona conteúdo trabalhado? Ex.: ritmo, pausa, canto com instrumento, respiração, vocalize, repertório.
+   - então verifique se `tronco.campos.atividades` resume o trabalho comum/real da aula.
+3. O tronco está vazio mas fatias estão ricas?
+   - quase sempre é bug. Releia a transcrição e derive o tronco a partir do que foi dito.
+
+Exemplo do bug corrigido:
+
+Áudio: “a gente trabalhou figuras rítmicas com pausas... quando canta junto com o instrumento... a música que a gente escolheu...”
+
+Correto:
+- `tronco.campos.atividades`: “Figuras rítmicas com pausas e prática de cantar junto com o instrumento.”
+- `tronco.campos.objetivo`: “Desenvolver percepção rítmica/melódica e integração entre voz e instrumento.”
+- `tronco.campos.repertorio`: “música escolhida” quando o nome não foi especificado.
+- Fatias continuam trazendo progresso individual, sem contaminar um aluno com o outro.
+
 ## NORMALIZAÇÃO DE TERMOS
 
 Corrija transcrição fonética com o dicionário + bom senso musical; **nomes de alunos**: aproxime SEMPRE da lista do contexto (fonética: "Táis"→Thays). Nome sem correspondência razoável → mantenha como ouvido e adicione em `avisos`.
@@ -88,18 +124,6 @@ Corrija transcrição fonética com o dicionário + bom senso musical; **nomes d
 - **A · Baby Class** (curso Baby/0-3 anos): foco em experiência sensorial, vínculo, `perfil_baby`; linguagem para a família é afeto + desenvolvimento.
 - **B · Musicalização / Kids** (Musicalização, Preparatória, Kids): atividades lúdicas, pulsação, bandinha; fatias por criança.
 - **C · School / Instrumento & Canto** (violão, bateria, teclado, canto…): técnica, repertório, marcos; funciona em turma pequena e 1:1.
-
-## FLUXO OPERACIONAL DO WEBHOOK (obrigatório)
-
-Quando o payload vier do LA Teacher app com `audio_id`, `aula_id`, `professor_id` e `audio_url`:
-
-1. Busque contexto com `fabio_buscar_contexto_aula`.
-2. Transcreva com `fabio_transcrever_audio_url`.
-3. Se a transcrição vier vazia, **não crie registro** e **não invente conteúdo**. Use `fabio_atualizar_status_audio` com `status="erro"` e erro curto: `transcricao vazia; professor precisa regravar`.
-4. Se criar registro com sucesso via `fabio_criar_registro_aula`, encerre a fila com `fabio_atualizar_status_audio` usando `status="normalizado"`.
-5. Se a RPC recusar ou faltar chave obrigatória, marque `status="erro"` com resumo curto da falha.
-
-A fila nunca pode ficar presa em `transcrevendo` depois que o webhook terminou.
 
 ## ENTRADA (JSON que você recebe)
 

@@ -41,13 +41,15 @@ O LA Report já tem a base pronta em `.claude/memory/`:
 ### Frente 2 — Registro de conteúdo de aula (áudio) ⭐ MVP
 | Precisa | Fonte canônica | Observação |
 |---|---|---|
-| Conteúdo da aula | `aulas_emusys.anotacoes` (text) | CANÔNICA confirmada — 31.763 aulas, sincroniza Emusys diário |
-| Continuidade | `aulas_emusys.nr_da_aula` | número da aula na sequência |
+| Conteúdo legado da aula | `aulas_emusys.anotacoes` | Escrito/sincronizado pelo Emusys; Fábio não sobrescreve |
+| Conteúdo novo do Fábio | `aulas_emusys.anotacoes_fabio` via RPC `registrar_aula_fabio` | Escrito somente pelo Fábio/RPC; não recebe cópia do legado |
+| Prontuário unificado do aluno | `vw_prontuario_aluno` | Leitura canônica: prefere Fábio, cai no Emusys e declara `origem` |
+| Continuidade | `aulas_emusys.nr_da_aula` + `vw_prontuario_aluno` | número da aula e linha do tempo pedagógica |
 
 ### Frente 3 — Revisitação / Continuidade
 | Precisa | Fonte canônica | Observação |
 |---|---|---|
-| Histórico de aulas do aluno | `aulas_emusys` (data_aula, anotacoes, nr_da_aula, professor_id) | base da revisitação |
+| Histórico/prontuário do aluno | `vw_prontuario_aluno` | une Emusys + Fábio na leitura, com procedência explícita |
 
 ### Frente 7 — Health Score (aluno e professor)
 | Precisa | Fonte canônica | Observação |
@@ -80,7 +82,7 @@ O LA Report já tem a base pronta em `.claude/memory/`:
 ## 4. REGRAS CRÍTICAS QUE O FÁBIO DEVE INTERNALIZAR
 (extraídas do `regras-negocio-canonicas.md` — as que tocam o pedagógico)
 
-- **`alunos` = matrículas, não pessoas.** Pessoa = `LOWER(TRIM(nome)) + unidade_id`. 2 cursos = 2 linhas (1 principal `is_segundo_curso=false` + N `true`).
+- **`alunos` = matrículas, não pessoas.** 2 cursos = 2 linhas (1 principal `is_segundo_curso=false` + N `true`). Nome + unidade é fallback assistido, não identidade definitiva; para prontuário, resolver todos os `alunos.id` da pessoa e separar por curso.
 - **`is_projeto_banda = true`** exclui o curso de: médias de turma, carteira do professor, score do professor. (Não usar filtro por nome tipo `ILIKE '%banda%'` — é legado frágil.)
 - **Carteira do professor:** alunos `ativo` do `professor_atual_id`. Inclui segundo curso; exclui banda e `trancado`.
 - **Score do professor (evasões):** só conta `motivos_saida.conta_score_professor = true`. Motivo NULL sem match = não conta. Exclui banda.
@@ -118,3 +120,17 @@ O LA Report já tem a base pronta em `.claude/memory/`:
 2. Fechar a lista definitiva de RPCs/views canônicas pedagógicas.
 3. Escrever a skill de regras do Fábio (mapa enxuto + ponteiros pros docs canônicos).
 4. Só então construir as skills operacionais (briefing, áudio, revisitação, relatório coordenação).
+
+
+---
+
+## 8. Atualização — Prontuário do Aluno (12/07/2026)
+
+Decisão arquitetural: não migrar o legado do Emusys para o campo do Fábio. A unificação acontece na leitura.
+
+- `aulas_emusys.anotacoes`: fonte histórica/legada escrita pelo Emusys/sync.
+- `aulas_emusys.anotacoes_fabio`: fonte nova escrita somente pela RPC `registrar_aula_fabio`.
+- `public.vw_prontuario_aluno`: timeline pedagógica unificada do aluno; expõe `origem = 'emusys' | 'fabio'` e `texto_emusys_paralelo` quando as duas fontes coexistem.
+- Skill operacional: `skills/consultar-prontuario-aluno/SKILL.md`.
+
+Regra: Fábio lê o prontuário pela view, declara procedência e nunca copia `anotacoes` para `anotacoes_fabio`.

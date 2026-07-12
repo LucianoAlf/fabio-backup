@@ -43,13 +43,13 @@ O LA Report já tem a base pronta em `.claude/memory/`:
 |---|---|---|
 | Conteúdo legado da aula | `aulas_emusys.anotacoes` | Escrito/sincronizado pelo Emusys; Fábio não sobrescreve |
 | Conteúdo novo do Fábio | `aulas_emusys.anotacoes_fabio` via RPC `registrar_aula_fabio` | Escrito somente pelo Fábio/RPC; não recebe cópia do legado |
-| Prontuário unificado do aluno | `vw_prontuario_aluno` | Leitura canônica: prefere Fábio, cai no Emusys e declara `origem` |
-| Continuidade | `aulas_emusys.nr_da_aula` + `vw_prontuario_aluno` | número da aula e linha do tempo pedagógica |
+| Prontuário unificado do aluno | RPC `fabio_prontuario_aluno` | Porta canônica do Fábio: deduplica, escopa por professor em SQL e declara `origem` |
+| Continuidade | `aulas_emusys.nr_da_aula` + RPC `fabio_prontuario_aluno` | número da aula e linha do tempo pedagógica segura |
 
 ### Frente 3 — Revisitação / Continuidade
 | Precisa | Fonte canônica | Observação |
 |---|---|---|
-| Histórico/prontuário do aluno | `vw_prontuario_aluno` | une Emusys + Fábio na leitura, com procedência explícita |
+| Histórico/prontuário do aluno | RPC `fabio_prontuario_aluno` | une Emusys + Fábio na leitura, com deduplicação e escopo SQL |
 
 ### Frente 7 — Health Score (aluno e professor)
 | Precisa | Fonte canônica | Observação |
@@ -130,7 +130,8 @@ Decisão arquitetural: não migrar o legado do Emusys para o campo do Fábio. A 
 
 - `aulas_emusys.anotacoes`: fonte histórica/legada escrita pelo Emusys/sync.
 - `aulas_emusys.anotacoes_fabio`: fonte nova escrita somente pela RPC `registrar_aula_fabio`.
-- `public.vw_prontuario_aluno`: timeline pedagógica unificada do aluno; expõe `origem = 'emusys' | 'fabio'` e `texto_emusys_paralelo` quando as duas fontes coexistem.
+- `public.vw_prontuario_aluno`: view interna/bruta da timeline; não é a porta do Fábio porque pode duplicar e não escopa por professor.
+- `public.fabio_prontuario_aluno(p_aluno_id, p_professor_id, p_limite)`: RPC canônica do Fábio; deduplica por data+curso canônico, resolve pessoa por `(unidade_id, emusys_student_id)` e aplica escopo por professor em SQL.
 - Skill operacional: `skills/consultar-prontuario-aluno/SKILL.md`.
 
-Regra: Fábio lê o prontuário pela view, declara procedência e nunca copia `anotacoes` para `anotacoes_fabio`.
+Regra: Fábio lê o prontuário pela RPC, declara procedência e nunca copia `anotacoes` para `anotacoes_fabio`.

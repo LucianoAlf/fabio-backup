@@ -82,51 +82,59 @@ Quem não foi citado individualmente recebe fatia com campos individuais `null`.
 
 ---
 
-## FATIA INDIVIDUAL: PROGRESSO NÃO É ATIVIDADE DA AULA
+## FATIA INDIVIDUAL: PROGRESSO DEPENDE DO TAMANHO DA AULA
 
-Esta regra é crítica para o fatiamento funcionar.
+Esta regra é crítica para não quebrar o prontuário.
 
-- `tronco.campos.atividades` = o que a **turma/aula** fez.
-- `fatia.campos.progresso` = como **aquele aluno específico** se saiu.
+- `tronco.campos.atividades` = o que a aula trabalhou.
+- `fatia.campos.progresso` = o registro pedagógico daquele aluno.
 
-Nunca use `fatia.progresso` para repetir, parafrasear ou “personalizar” a atividade coletiva. Se o professor só disse o que foi trabalhado na aula, isso fica no tronco e o progresso individual fica `null`.
+A decisão muda conforme o tamanho real da aula:
 
-Exemplo real de bug:
+### Aula de 1 aluno / roster com 1 aluno
 
-- `tronco.atividades`: “Trabalho com a música Temos que Pegar, foco na letra + vocalize + respiração”
-- Errado em `fatia.progresso`: “Trabalhou a música Temos que Pegar, foco em pegar/decorar a letra; também fez vocalize e respiração”
+Aqui o tronco **é o próprio aluno**. Não existe separação entre “o que a turma fez” e “o que o aluno fez”. Portanto, `fatia.progresso` deve ser preenchido normalmente quando o professor descreveu o trabalho do aluno, mesmo que pareça próximo de `tronco.atividades`.
 
-Isso é a mesma informação com outras palavras. Numa turma de 3, os três alunos receberiam o mesmo prontuário e o fatiamento perderia o sentido.
-
-Correção:
+Correto em aula de 1 aluno:
 
 - `tronco.campos.atividades`: “Trabalho com a música Temos que Pegar, foco na letra, vocalize e respiração.”
-- `fatia.campos.progresso`: `null`, se o professor não falou desempenho individual daquele aluno.
+- `fatia.campos.progresso`: “Trabalhou a música Temos que Pegar, com foco em pegar e decorar a letra; também fez vocalize e respiração.”
 
-Só preencha `fatia.progresso` quando houver evidência individual explícita, por exemplo:
+Não esvazie progresso em aula individual só para evitar repetição. Isso apagaria o campo mais importante do prontuário.
+
+### Aula de 2+ alunos / turma real
+
+Aqui existe diferença entre comum e individual.
+
+- Conteúdo comum da turma → `tronco.campos.atividades`.
+- Desempenho específico de cada aluno → `fatia.campos.progresso`.
+- Se o professor não falou nada específico daquele aluno → `fatia.campos.progresso = null`.
+
+Exemplo de bug numa turma de 3:
+
+- `tronco.atividades`: “Trabalho com a música Temos que Pegar, foco na letra + vocalize + respiração”
+- Errado em todas as fatias: “Trabalhou a música Temos que Pegar, foco em pegar/decorar a letra; também fez vocalize e respiração”
+
+Isso faria os três alunos receberem o mesmo “progresso” e o fatiamento perderia sentido.
+
+Só preencha `fatia.progresso` em turma 2+ quando houver evidência individual explícita, por exemplo:
 
 - “Valentina decorou o refrão sem ajuda.”
 - “Valentina ainda se perdeu na segunda parte da letra.”
 - “Valentina respirou melhor antes das frases longas.”
 - “Valentina cantou com mais segurança que na aula anterior.”
 
-Frases proibidas como progresso quando são apenas atividade:
-
-- “Trabalhou a música X.”
-- “Fez vocalize e respiração.”
-- “Praticou a letra.”
-- “Participou da atividade da turma.”
-- “Realizou o exercício proposto.”
-
-Se não houver evidência individual: `progresso = null`. Campo vazio é convite para o professor completar; genérico repetido é ruído no prontuário.
+Em turma 2+, se não houver evidência individual: `progresso = null`. Campo vazio é convite para o professor completar; genérico repetido é ruído no prontuário.
 
 ### Teste de regressão obrigatório — Valentina / Temos que Pegar
+
+Contexto real: aula `C_Seg_11` com **1 aluno**.
 
 Entrada conceitual:
 
 > “Hoje trabalhamos a música Temos que Pegar, focando em pegar e decorar a letra. Também fizemos vocalize e respiração.”
 
-Se não houver frase específica sobre o desempenho da Valentina, a saída deve preservar este shape:
+Saída correta para aula de 1 aluno:
 
 ```json
 {
@@ -139,7 +147,7 @@ Se não houver frase específica sobre o desempenho da Valentina, a saída deve 
     {
       "aluno_nome": "Valentina",
       "campos": {
-        "progresso": null,
+        "progresso": "Trabalhou a música Temos que Pegar, com foco em pegar e decorar a letra; também fez vocalize e respiração",
         "proximo_passo": null,
         "observacao": null
       }
@@ -148,7 +156,7 @@ Se não houver frase específica sobre o desempenho da Valentina, a saída deve 
 }
 ```
 
-Qualquer saída com `fatia.progresso` igual a “Trabalhou a música Temos que Pegar...” falhou.
+A mesma entrada numa turma de 2+ alunos, sem fala individual sobre Valentina, teria `progresso: null` para ela.
 
 ## TRONCO OBRIGATÓRIO: ATIVIDADES E OBJETIVO NÃO SÃO OPCIONAIS QUANDO HÁ CONTEÚDO
 

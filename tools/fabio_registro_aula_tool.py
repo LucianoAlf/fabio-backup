@@ -395,6 +395,67 @@ def _has_pedagogical_content(value: Any) -> bool:
     return False
 
 
+def _normalizar_presenca_em_campos(p_payload: Dict[str, Any]) -> tuple[Dict[str, Any] | None, dict[str, Any] | None]:
+    """Ensure the v1.4 attendance contract reaches the database shape.
+
+    The database reads attendance from `fabio_registros_aula.campos->>'presenca'`.
+    Older prompt examples used a top-level `fatia.presenca`; keep that shape
+    backward-compatible by copying it into `fatia.campos.presenca`, but never
+    invent a value here. If the model omits attendance, the DB hook remains a
+    safe no-op until a corrected payload is produced.
+    """
+    fatias = p_payload.get("fatias")
+    if not isinstance(fatias, list):
+        return p_payload, None
+
+    allowed = {"presente", "ausente"}
+    normalized: list[dict[str, Any]] = []
+    invalid: list[dict[str, Any]] = []
+    copied = 0
+    explicit = 0
+    missing = 0
+
+    for idx, raw in enumerate(fatias):
+        if not isinstance(raw, dict):
+            normalized.append(raw)
+            continue
+        fatia = dict(raw)
+        campos = fatia.get("campos") if isinstance(fatia.get("campos"), dict) else {}
+        campos = dict(campos)
+
+        valor = campos.get("presenca")
+        if valor is None and fatia.get("presenca") is not None:
+            valor = fatia.get("presenca")
+            copied += 1
+        if valor is None:
+            missing += 1
+        else:
+            valor = str(valor).strip().lower()
+            if valor not in allowed:
+                invalid.append({"idx": idx, "aluno_id": fatia.get("aluno_id"), "presenca": valor})
+            else:
+                campos["presenca"] = valor
+                explicit += 1
+        fatia["campos"] = campos
+        normalized.append(fatia)
+
+    if invalid:
+        return None, {"error": "presenca inválida nas fatias", "allowed": sorted(allowed), "invalid": invalid}
+
+    p_payload = dict(p_payload)
+    p_payload["fatias"] = normalized
+    tronco = p_payload.get("tronco") if isinstance(p_payload.get("tronco"), dict) else {}
+    tronco_campos = tronco.get("campos") if isinstance(tronco.get("campos"), dict) else {}
+    p_payload["tronco"] = {
+        **tronco,
+        "campos": {
+            **tronco_campos,
+            "presenca_shape_meta": {"explicit": explicit, "copied_from_top_level": copied, "missing": missing},
+        },
+    }
+    return p_payload, None
+
+
 def fabio_criar_registro_aula(p_payload: Dict[str, Any]) -> str:
     """Call only public.fabio_criar_registro(p_payload jsonb) via Supabase REST."""
     if not isinstance(p_payload, dict):
@@ -444,6 +505,12 @@ def fabio_criar_registro_aula(p_payload: Dict[str, Any]) -> str:
         if existing_data:
             fabio_atualizar_status_audio(audio_id, "normalizado", None)
             return json.dumps({"ok": True, "status_code": 200, "result": {"status": "ja_existia", "registro_id": existing_data[0].get("id"), "fatias": None}}, ensure_ascii=False)
+
+    p_payload, presenca_error = _normalizar_presenca_em_campos(p_payload)
+    if presenca_error:
+        if audio_id:
+            fabio_atualizar_status_audio(audio_id, "erro", presenca_error.get("error", "presenca inválida"))
+        return json.dumps({"ok": False, **presenca_error, "audio_id": audio_id or None}, ensure_ascii=False)
 
     content_probe = {
         "tronco": p_payload.get("tronco"),
